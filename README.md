@@ -1,5 +1,5 @@
 # Vekrel-Web
-The browser client for Vekrel (also wrapped by the desktop app); derived from T3 Code (MIT, see NOTICE).
+The browser client for Vekrel (also wrapped by the desktop app). Highly inspired by T3 Code (MIT, see NOTICE).
 
 `packages/` is a git subtree of Vekrel-Shared's `packages/` (split with `git subtree split --prefix=packages`; see Vekrel-Engine's README for the pull commands).
 
