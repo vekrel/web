@@ -71,11 +71,7 @@ function useResolvedSettingsScope(rawSearch: SettingsScopeSearch, singleMachine:
     : rawSearch;
   const scope = resolveSettingsScope(search, groups, availableMachines);
   const projectFiles = useMemberProjectFiles(scope);
-  const selected = selectScopedSettingsMachines(
-    scope,
-    availableMachines,
-    primaryMachineId,
-  );
+  const selected = selectScopedSettingsMachines(scope, availableMachines, primaryMachineId);
   const targets = resolveScopedSettingsTargets(scope, selected.connectedMachines, projectFiles);
   const target =
     targets.find((candidate) => candidate.machineId === selected.machine?.machineId) ??
