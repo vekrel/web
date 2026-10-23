@@ -1,4 +1,4 @@
-import { type MachineId, T3_PROJECT_FILE_NAME, type T3ProjectFile } from "@vekrel/contracts";
+import { type MachineId, VEKREL_PROJECT_FILE_NAME, type T3ProjectFile } from "@vekrel/contracts";
 import { parseT3ProjectFile } from "@vekrel/shared/t3ProjectFile";
 import { useAtomValue } from "@effect/atom-react";
 import * as Option from "effect/Option";
@@ -25,11 +25,11 @@ const memberProjectFilesAtom = Atom.family((membersKey: string) => {
     const files = new Map<string, T3ProjectFile | null>();
     for (const [machineId, workspaceRoot, physicalProjectKey] of members) {
       const result = get(
-        getProjectFileQueryAtom(machineId, workspaceRoot, T3_PROJECT_FILE_NAME),
+        getProjectFileQueryAtom(machineId, workspaceRoot, VEKREL_PROJECT_FILE_NAME),
       );
       if (result.waiting) continue;
       const data =
-        get(optimisticFileAtom(machineId, workspaceRoot, T3_PROJECT_FILE_NAME))?.data ??
+        get(optimisticFileAtom(machineId, workspaceRoot, VEKREL_PROJECT_FILE_NAME))?.data ??
         Option.getOrNull(AsyncResult.value(result));
       files.set(
         physicalProjectKey,
