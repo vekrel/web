@@ -67,6 +67,11 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
+/** Lets every queued promise reaction run (the relay fakes answer without timers). */
+async function drainMicrotasks() {
+  for (let turn = 0; turn < 50; turn += 1) await Promise.resolve();
+}
+
 async function startedSignIn(returnTo?: string) {
   const auth = await import("./accountAuth");
   auth.startAccountSignIn(returnTo);
@@ -186,6 +191,37 @@ describe("web account auth", () => {
 
     refuse();
     await staleRead;
+    expect(auth.getAccountAuthState().isSignedIn).toBe(true);
+  });
+
+  it("on the callback, no cookie read races the code exchange", async () => {
+    // Web Locks grant asynchronously, as in a browser.
+    vi.stubGlobal("navigator", {
+      locks: { request: async (_name: string, callback: () => Promise<unknown>) => callback() },
+    });
+    const { auth, callback } = await startedSignIn();
+    (window.location as unknown as URL).pathname = "/auth/callback";
+
+    await auth.completeAccountSignIn(callback);
+    await drainMicrotasks();
+    expect(auth.getAccountAuthState().isSignedIn).toBe(true);
+    expect(events.filter((event) => event === "fetch refresh_token")).toEqual([]);
+  });
+
+  it("a cookie read started before the sign-in cannot sign the callback page out", async () => {
+    const { auth, callback } = await startedSignIn();
+    let refuse!: () => void;
+    // The callback page's first cookie read (no cookie yet) answers after the exchange.
+    refreshAnswer = () =>
+      new Promise((resolve) => {
+        refuse = () => resolve(Response.json({ error: "invalid_grant" }, { status: 400 }));
+      });
+
+    await auth.completeAccountSignIn(callback);
+    expect(auth.getAccountAuthState().isSignedIn).toBe(true);
+    refuse();
+    await vi.waitFor(() => expect(fetchMock.mock.results.length).toBeGreaterThan(1));
+    await drainMicrotasks();
     expect(auth.getAccountAuthState().isSignedIn).toBe(true);
   });
 });

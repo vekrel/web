@@ -30,6 +30,7 @@ const SIGNED_OUT: AccountAuthState = {
 };
 const PENDING_SIGN_IN_KEY = "vekrel:account:pending-sign-in";
 const CHANNEL_NAME = "vekrel-account";
+const CALLBACK_PATH = "/auth/callback";
 
 let state: AccountAuthState = { ...SIGNED_OUT, isLoaded: false };
 const listeners = new Set<() => void>();
@@ -83,7 +84,11 @@ async function load(target: AccountSession): Promise<void> {
 function ensureSession(): AccountSession {
   if (session) return session;
   session = newSession();
-  void load(session);
+  // On the callback the code exchange goes first. A cookie read queued behind the refresh lock
+  // would start after the exchange began, be refused (no cookie yet) and sign the new session out.
+  // shortcut: Shared's refresh takes its generation after the lock wait; once it takes it at call
+  // time, the callback can load like any page.
+  if (window.location.pathname !== CALLBACK_PATH) void load(session);
   if (typeof BroadcastChannel !== "undefined") {
     channel = new BroadcastChannel(CHANNEL_NAME);
     // Another tab signed in or out: a fresh session re-reads the shared cookie. Without this a
@@ -109,7 +114,7 @@ export async function getAccountToken(): Promise<string | null> {
 }
 
 function callbackUri(): string {
-  return `${window.location.origin}/auth/callback`;
+  return `${window.location.origin}${CALLBACK_PATH}`;
 }
 
 /** Sends the tab to the relay's sign-in page; `/auth/callback` brings it back to `returnTo`. */
@@ -129,14 +134,23 @@ export function startAccountSignIn(returnTo: string = window.location.href): voi
  */
 export async function completeAccountSignIn(callbackUrl: string): Promise<string> {
   // Code and state leave the address bar (history, referrers) before anything else can fail.
-  window.history.replaceState(window.history.state, "", "/auth/callback");
+  window.history.replaceState(window.history.state, "", CALLBACK_PATH);
+  const target = ensureSession();
+  try {
+    return await exchangeCode(callbackUrl, target);
+  } catch (error) {
+    void load(target);
+    throw error;
+  }
+}
+
+async function exchangeCode(callbackUrl: string, target: AccountSession): Promise<string> {
   const raw = sessionStorage.getItem(PENDING_SIGN_IN_KEY);
   sessionStorage.removeItem(PENDING_SIGN_IN_KEY);
   const saved = raw
     ? (JSON.parse(raw) as { readonly pending: PendingSignIn; readonly returnTo: string })
     : null;
   if (!saved) throw new Error("This sign-in was not started in this tab. Sign in again.");
-  const target = ensureSession();
   await target.completeSignIn(callbackUrl, saved.pending);
   setState(stateFromToken(await target.getAccessToken()));
   announce();
