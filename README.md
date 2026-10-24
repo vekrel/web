@@ -19,13 +19,14 @@ The browser client for Vekrel (also wrapped by the desktop app). Highly inspired
 - Files copied only so the licenses plugin and tests find their inputs: `apps/server/src/device/deviceToolVersions.json`, `native/libghostty-vt/{LICENSE,VERSION,include/}`, `apps/mobile/modules/{t3-composer-editor,t3-source-text}/LICENSE`, `third-party-licenses.config.json`.
 - `scripts` and `infra/*` are not workspace members (scripts' typecheck references app files); `scripts/` kept on disk. Root `start` runs `vp run --filter @vekrel/web preview`.
 - `apps/web` has no `typecheck` package script; run `pnpm --filter @vekrel/web exec vp run typecheck`.
+- Accounts: the upstream hosted auth provider is replaced by Vekrel accounts on the relay (`@vekrel/client-runtime/account-auth`, client `vekrel-web`). Sign-in sends the tab to `<relay>/oauth/authorize` (PKCE) and comes back on `/auth/callback`; the access token stays in memory and the refresh token is the relay's HttpOnly cookie, so the web app and the relay must be same-site: `VITE_VEKREL_RELAY_URL=https://relay.<domain>` enables sign-in on `https://<domain>` and its subdomains only, and a loopback relay (`http://localhost:<port>`) on the same loopback host only. The relay's `WEB_ORIGINS` must list the app origin. Unset relay URL: no cloud UI. Sign-in/out in one tab wakes the others (BroadcastChannel). The desktop shell has no cloud sign-in until Desktop wires its deep link. The hosted `/connect` hop for the CLI is gone (the CLI authorizes at the relay). The account dialog (sidebar avatar) shows the email, sign out, and the Vekrel Connect and mobile client pages.
+- Local sign-in check: relay with `MAGIC_LINK_TRANSPORT=log RELAY_ORIGIN=http://localhost:<relay port> WEB_ORIGINS=http://localhost:<web port>`, then `VITE_VEKREL_RELAY_URL=http://localhost:<relay port> VITE_HOSTED_APP_URL=http://localhost:<web port> vp dev --port <web port>` in `apps/web`. Relay machine calls stay https-only, so the machine list shows "Relay URL must be a secure absolute HTTPS origin" against a local relay.
 - Test: `bundledDev.test.ts` fails (`rolldown/experimental/runtime` not exported by the hoisted rolldown rc.17); the browser project needs `pnpm exec playwright install chromium`.
 - Removed `patchedDependencies` entries (and patch files) for packages not installed here:
   - react-native-image-viewing@0.2.2
   - alchemy@2.0.0-beta.80
   - expo-audio@58.0.9
   - expo-network@58.0.3
-  - "@clerk/expo-native-components@0.2.0"
   - "@expo/metro-config@58.0.14"
   - expo-sharing@58.0.19
   - expo-widgets@58.0.20
