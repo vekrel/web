@@ -63,11 +63,15 @@ function relayUrl(): string {
 }
 
 function newSession(): AccountSession {
-  return createAccountSession({
+  const created = createAccountSession({
     relayUrl: relayUrl(),
     clientId: AccountClientId.web,
-    onSignedOut: () => setState(SIGNED_OUT),
+    // A session another tab's announcement replaced must not sign this tab out.
+    onSignedOut: () => {
+      if (session === created) setState(SIGNED_OUT);
+    },
   });
+  return created;
 }
 
 /** Reads the relay cookie once; a relay that cannot be reached reads as signed out. */
@@ -98,8 +102,9 @@ function announce(): void {
 
 /** An access token for relay calls, or `null` when signed out. */
 export async function getAccountToken(): Promise<string | null> {
-  const token = await ensureSession().getAccessToken();
-  setState(stateFromToken(token));
+  const target = ensureSession();
+  const token = await target.getAccessToken();
+  if (session === target) setState(stateFromToken(token));
   return token;
 }
 
@@ -123,6 +128,8 @@ export function startAccountSignIn(returnTo: string = window.location.href): voi
  * single use: it is removed before the exchange, so a reload of the callback cannot replay it.
  */
 export async function completeAccountSignIn(callbackUrl: string): Promise<string> {
+  // Code and state leave the address bar (history, referrers) before anything else can fail.
+  window.history.replaceState(window.history.state, "", "/auth/callback");
   const raw = sessionStorage.getItem(PENDING_SIGN_IN_KEY);
   sessionStorage.removeItem(PENDING_SIGN_IN_KEY);
   const saved = raw
@@ -134,10 +141,9 @@ export async function completeAccountSignIn(callbackUrl: string): Promise<string
   setState(stateFromToken(await target.getAccessToken()));
   announce();
   const returnTo = new URL(saved.returnTo, window.location.origin);
-  // Only ever return to this app.
-  return returnTo.origin === window.location.origin
-    ? `${returnTo.pathname}${returnTo.search}${returnTo.hash}`
-    : "/";
+  const path = `${returnTo.pathname}${returnTo.search}${returnTo.hash}`;
+  // Only ever return to this app: same origin, and not a protocol-relative path ("//", "/\\").
+  return returnTo.origin === window.location.origin && /^\/(?![/\\])/u.test(path) ? path : "/";
 }
 
 /** Revokes the relay session (cookie) and forgets the access token. */
@@ -146,6 +152,10 @@ export async function signOutAccount(): Promise<void> {
   setState(SIGNED_OUT);
   await target.signOut();
   announce();
+}
+
+export function getAccountAuthState(): AccountAuthState {
+  return state;
 }
 
 function subscribe(listener: () => void): () => void {
@@ -158,6 +168,6 @@ function subscribe(listener: () => void): () => void {
 export function useAuth(): AccountAuthState & {
   readonly getToken: typeof getAccountToken;
 } {
-  const current = useSyncExternalStore(subscribe, () => state);
+  const current = useSyncExternalStore(subscribe, getAccountAuthState);
   return { ...current, getToken: getAccountToken };
 }

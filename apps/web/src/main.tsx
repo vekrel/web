@@ -17,6 +17,15 @@ import { clearChunkReloadGuard, reloadOnceForChunkLoadError } from "./lib/chunkR
 
 prepareProviderAuthDelivery();
 
+// The relay's code and state arrive in /auth/callback's query: keep them out of Referer headers
+// until the callback takes them out of the address bar.
+if (window.location.pathname === "/auth/callback") {
+  const referrerPolicy = document.createElement("meta");
+  referrerPolicy.name = "referrer";
+  referrerPolicy.content = "no-referrer";
+  document.head.append(referrerPolicy);
+}
+
 // Electron loads the app from a file-backed shell, so hash history avoids path resolution issues.
 const history = isElectron ? createHashHistory() : createBrowserHistory();
 

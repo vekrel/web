@@ -23,6 +23,10 @@ class FakeChannel {
 
 let fetchMock: ReturnType<typeof vi.fn>;
 let assign: ReturnType<typeof vi.fn>;
+let replaceState: ReturnType<typeof vi.fn>;
+// Order of URL rewrites and relay requests, to check the code leaves the address bar first.
+let events: string[];
+let refreshAnswer: () => Promise<Response>;
 
 beforeEach(() => {
   vi.resetModules();
@@ -34,16 +38,26 @@ beforeEach(() => {
     removeItem: (key: string) => storage.delete(key),
   });
   assign = vi.fn();
-  vi.stubGlobal("window", { location: Object.assign(new URL(`${ORIGIN}/settings`), { assign }) });
+  events = [];
+  replaceState = vi.fn((_state: unknown, _title: string, url: string) =>
+    events.push(`replace ${url}`),
+  );
+  vi.stubGlobal("window", {
+    location: Object.assign(new URL(`${ORIGIN}/settings`), { assign }),
+    history: { state: null, replaceState },
+  });
   vi.stubGlobal("BroadcastChannel", FakeChannel);
   vi.stubEnv("VITE_VEKREL_RELAY_URL", RELAY);
   // No cookie yet: the relay refuses the refresh.
+  refreshAnswer = async () => Response.json({ error: "invalid_grant" }, { status: 400 });
   fetchMock = vi.fn(async (url: string, init: RequestInit) => {
     const body = new URLSearchParams(init.body as string);
+    events.push(`fetch ${body.get("grant_type") ?? "revoke"}`);
     if (url.endsWith("/oauth/token") && body.get("grant_type") === "authorization_code") {
       return Response.json({ access_token: token, expires_in: 600 });
     }
-    return Response.json({ error: "invalid_grant" }, { status: 400 });
+    if (body.get("grant_type") === "refresh_token") return refreshAnswer();
+    return Response.json({});
   });
   vi.stubGlobal("fetch", fetchMock);
 });
@@ -114,5 +128,64 @@ describe("web account auth", () => {
     await vi.waitFor(() => expect(refreshes()).toBe(before + 1));
     // This tab's own completion also announces; it must not throw.
     await auth.completeAccountSignIn(callback);
+  });
+
+  it("takes code and state out of the address bar before the exchange", async () => {
+    const { auth, callback } = await startedSignIn();
+    events.length = 0;
+
+    await auth.completeAccountSignIn(callback);
+    expect(events[0]).toBe("replace /auth/callback");
+    expect(events).toContain("fetch authorization_code");
+  });
+
+  it("takes code and state out of the address bar when the sign-in fails", async () => {
+    const auth = await import("./accountAuth");
+
+    await expect(
+      auth.completeAccountSignIn(`${ORIGIN}/auth/callback?code=c&state=s`),
+    ).rejects.toThrow();
+    expect(replaceState).toHaveBeenCalledWith(null, "", "/auth/callback");
+  });
+
+  it.each([`${ORIGIN}//evil.example.test/x`, `${ORIGIN}/\\evil.example.test/x`])(
+    "never returns to a protocol-relative path: %s",
+    async (returnTo) => {
+      const { auth, callback } = await startedSignIn(returnTo);
+
+      await expect(auth.completeAccountSignIn(callback)).resolves.toBe("/");
+    },
+  );
+
+  it("ignores a sign-out from a session another tab's announcement replaced", async () => {
+    const { auth, callback } = await startedSignIn();
+    const stale = fakeJwt({ sub: "user-1", email: "a@example.test", exp: 1 });
+    const answer = fetchMock.getMockImplementation() as (
+      url: string,
+      init: RequestInit,
+    ) => Promise<Response>;
+    // The code exchange expires at once (inside the 30 s skew), so the next read refreshes.
+    fetchMock.mockImplementation(async (url: string, init: RequestInit) =>
+      String(init.body).includes("authorization_code")
+        ? Response.json({ access_token: stale, expires_in: 1 })
+        : answer(url, init),
+    );
+    await auth.completeAccountSignIn(callback);
+    let refuse!: () => void;
+    refreshAnswer = () =>
+      new Promise((resolve) => {
+        refuse = () => resolve(Response.json({ error: "invalid_grant" }, { status: 400 }));
+      });
+    const staleRead = auth.getAccountToken();
+    await vi.waitFor(() => expect(refuse).toBeTypeOf("function"));
+
+    // Another tab signed in again: this tab's new session reads a fresh cookie.
+    refreshAnswer = async () => Response.json({ access_token: token, expires_in: 600 });
+    new FakeChannel().postMessage();
+    await vi.waitFor(() => expect(auth.getAccountAuthState().isSignedIn).toBe(true));
+
+    refuse();
+    await staleRead;
+    expect(auth.getAccountAuthState().isSignedIn).toBe(true);
   });
 });

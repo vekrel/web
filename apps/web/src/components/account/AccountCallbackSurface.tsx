@@ -5,11 +5,12 @@ import { AuthSurfaceShell } from "../auth/AuthSurfaceShell";
 import { Button } from "../ui/button";
 import { completeAccountSignIn, startAccountSignIn } from "./accountAuth";
 
-// One exchange per callback URL: StrictMode runs effects twice and the code is single use.
-let exchange: { readonly href: string; readonly result: Promise<string> } | null = null;
+// One exchange per page load: StrictMode runs effects twice, the code is single use, and the
+// first run already took the code out of the address bar. A new sign-in is a new page load.
+let exchange: Promise<string> | null = null;
 function exchangeOnce(href: string): Promise<string> {
-  if (exchange?.href !== href) exchange = { href, result: completeAccountSignIn(href) };
-  return exchange.result;
+  exchange ??= completeAccountSignIn(href);
+  return exchange;
 }
 
 /** `/auth/callback`: the relay sends the tab back here with `code` and `state`. */
