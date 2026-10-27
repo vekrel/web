@@ -8,5 +8,5 @@
     // Deep links (/auth/callback, /pair, /settings/...) fall back to index.html.
     "not_found_handling": "single-page-application",
   },
-  "routes": [{ "pattern": "app.vekrel.com", "custom_domain": true }],
+  "routes": [{ "pattern": "rc.vekrel.com", "custom_domain": true }],
 }
