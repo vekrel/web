@@ -241,8 +241,8 @@ export function T3ConnectUserProfilePage() {
               <EmptyHeader>
                 <EmptyTitle>No Vekrel Connect machines</EmptyTitle>
                 <EmptyDescription>
-                  Link a machine from its local Settings to make it available through T3
-                  Connect.
+                  Run <code>npx vekrel connect</code> on a machine, or link it from its local Settings,
+                  to make it available through Vekrel Connect.
                 </EmptyDescription>
               </EmptyHeader>
             </Empty>
