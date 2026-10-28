@@ -1,0 +1,103 @@
+# Hosted web app channels, after T3's release.yml build_web/deploy_web (Vercel there, Cloudflare here).
+# Stable (latest) -> worker vekrel-web on rc.vekrel.com, plus vekrel.com (apps/web/site).
+# Nightly         -> worker vekrel-web-nightly on rc-nightly.vekrel.com.
+name: Deploy web
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+      - "!v*.*.*-nightly.*"
+  schedule:
+    # Daily nightly; skipped when main has not moved since the last nightly deploy.
+    - cron: "7 3 * * *"
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: "Release channel"
+        required: true
+        default: nightly
+        type: choice
+        options:
+          - nightly
+          - stable
+
+concurrency:
+  group: deploy-web-${{ (github.event_name == 'schedule' || inputs.channel == 'nightly') && 'nightly' || 'stable' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy hosted web app
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      CHANNEL: ${{ (github.event_name == 'schedule' || inputs.channel == 'nightly') && 'nightly' || 'stable' }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: false
+
+      - id: plan
+        name: Resolve channel
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$CHANNEL" == "stable" ]]; then
+            {
+              echo "hosted_url=https://rc.vekrel.com"
+              echo "hosted_channel=latest"
+              echo "env_args="
+            } >> "$GITHUB_OUTPUT"
+          else
+            {
+              echo "hosted_url=https://rc-nightly.vekrel.com"
+              echo "hosted_channel=nightly"
+              echo "env_args=--env nightly"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+          skip=false
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
+            # Each deploy is tagged with its commit; the newest version is the live one.
+            deployed_sha="$(vp dlx wrangler@4 versions list --name vekrel-web-nightly --json 2>/dev/null \
+              | jq -r 'max_by(.number).annotations["workers/tag"] // ""' || true)"
+            if [[ "$deployed_sha" == "$GITHUB_SHA" ]]; then
+              echo "Nightly already deployed at $GITHUB_SHA; skipping."
+              skip=true
+            fi
+          fi
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        if: steps.plan.outputs.skip != 'true'
+        run: vp install --filter '@vekrel/web...'
+
+      - name: Build hosted web app
+        if: steps.plan.outputs.skip != 'true'
+        working-directory: apps/web
+        env:
+          VEKREL_RELAY_URL: https://relay.vekrel.com
+          VITE_HOSTED_APP_URL: ${{ steps.plan.outputs.hosted_url }}
+          VITE_HOSTED_APP_CHANNEL: ${{ steps.plan.outputs.hosted_channel }}
+        run: vp build
+
+      - name: Deploy hosted web app
+        if: steps.plan.outputs.skip != 'true'
+        working-directory: apps/web
+        run: vp dlx wrangler@4 deploy ${{ steps.plan.outputs.env_args }} --tag "$GITHUB_SHA" --message "$CHANNEL ${GITHUB_REF_NAME} ${GITHUB_SHA::12}"
+
+      - name: Deploy vekrel.com site
+        if: steps.plan.outputs.skip != 'true' && env.CHANNEL == 'stable'
+        run: vp dlx wrangler@4 deploy -c apps/web/site/wrangler.jsonc

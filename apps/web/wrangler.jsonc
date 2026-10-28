@@ -1,12 +1,22 @@
 // Hosted web app on Cloudflare (Workers static assets). T3 used Vercel (vercel.ts).
-// `pnpm --filter @vekrel/web deploy:hosted` builds with the hosted env and deploys (needs `wrangler login`).
+// Stable (latest): worker vekrel-web on rc.vekrel.com. Nightly: `--env nightly`, worker vekrel-web-nightly on rc-nightly.vekrel.com.
+// CI deploys both (.github/workflows/deploy-web.yml). Manual stable deploy: `pnpm --filter @vekrel/web deploy:hosted`.
 {
   "name": "vekrel-web",
+  "main": "channel-worker.js",
   "compatibility_date": "2026-10-01",
   "assets": {
     "directory": "./dist",
     // Deep links (/auth/callback, /pair, /settings/...) fall back to index.html.
     "not_found_handling": "single-page-application",
+    // Only the Update track switch runs the script; everything else is served straight from assets.
+    "run_worker_first": ["/__t3code/channel"],
   },
   "routes": [{ "pattern": "rc.vekrel.com", "custom_domain": true }],
+  "env": {
+    "nightly": {
+      "name": "vekrel-web-nightly",
+      "routes": [{ "pattern": "rc-nightly.vekrel.com", "custom_domain": true }],
+    },
+  },
 }
