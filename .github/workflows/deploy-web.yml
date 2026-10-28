@@ -23,7 +23,7 @@ on:
           - stable
 
 concurrency:
-  group: deploy-web-${{ (github.event_name == 'schedule' || inputs.channel == 'nightly') && 'nightly' || 'stable' }}
+  group: deploy-web-${{ (startsWith(github.ref, 'refs/tags/') || inputs.channel == 'stable') && 'stable' || 'nightly' }}
   cancel-in-progress: false
 
 permissions:
@@ -35,7 +35,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     env:
-      CHANNEL: ${{ (github.event_name == 'schedule' || inputs.channel == 'nightly') && 'nightly' || 'stable' }}
+      CHANNEL: ${{ (startsWith(github.ref, 'refs/tags/') || inputs.channel == 'stable') && 'stable' || 'nightly' }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
